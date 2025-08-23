@@ -22,4 +22,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/user/', include(('authorization.urls', 'user'), namespace='user_auth')),
     path('api/admin/', include(('authorization.urls', 'auth'), namespace='admin_auth')),
+    path('api/admin/', include(('category.urls_admin', 'category'), namespace='admin_category')),
+    path('api/', include(('category.urls', 'category'), namespace='user_category')),
+   
 ]
