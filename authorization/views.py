@@ -100,7 +100,7 @@ class LoginAPIView(APIView):
         access['scope'] = scope
 
         # Set cookies as before
-        access_max_age = int((getattr(settings, 'SIMPLE_JWT', {}).get('ACCESS_TOKEN_LIFETIME', datetime.timedelta(minutes=15))).total_seconds())
+        access_max_age = int((getattr(settings, 'SIMPLE_JWT', {}).get('ACCESS_TOKEN_LIFETIME', datetime.timedelta(hours=7))).total_seconds())
         refresh_max_age = int((getattr(settings, 'SIMPLE_JWT', {}).get('REFRESH_TOKEN_LIFETIME', datetime.timedelta(days=1))).total_seconds())
 
         response = Response({"message": "Successfully logged in!"}, status=status.HTTP_200_OK)

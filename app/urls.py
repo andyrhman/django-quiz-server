@@ -23,6 +23,7 @@ urlpatterns = [
     path('api/user/', include(('authorization.urls', 'user'), namespace='user_auth')),
     path('api/admin/', include(('authorization.urls', 'auth'), namespace='admin_auth')),
     path('api/admin/', include(('categories.urls_admin', 'categories'), namespace='admin_category')),
+    path('api/admin/', include(('quizinfo.urls_admin', 'quizinfo'), namespace='admin_quizinfo')),
     path('api/', include(('categories.urls', 'categories'), namespace='user_category')),
-   
+    path('api/', include(('quizinfo.urls', 'quizinfo'), namespace='user_quizinfo')),
 ]

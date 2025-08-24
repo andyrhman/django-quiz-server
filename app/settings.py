@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     'core',
     'authorization',
     'categories',
+    'quizinfo',
 ]
 
 MIDDLEWARE = [
@@ -157,7 +158,7 @@ REST_FRAMEWORK = {
 }
 
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=15),
+    'ACCESS_TOKEN_LIFETIME': timedelta(hours=7), # 15 minutes default
     'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
     'ROTATE_REFRESH_TOKENS': False,
     'BLACKLIST_AFTER_ROTATION': False,

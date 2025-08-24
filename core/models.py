@@ -63,12 +63,19 @@ class QuizInfo(models.Model):
     id = models.UUIDField(default=uuid.uuid4, primary_key=True, editable=False)
     name = models.CharField(max_length=255, unique=True)
     time_limit = models.IntegerField(default=0)
-    score = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     completed = models.BooleanField(default=False)
     category = models.ForeignKey(Category, on_delete=models.CASCADE, related_name='quiz_categories')
     user = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name='quiz_user')
+
+    def compute_max_score(self):
+        from django.db.models import Sum
+        agg = self.quiz_info_questions.aggregate(total=Sum('points'))
+        return float(agg['total'] or 0.0)
+
+    def __str__(self):
+        return self.name
 
 class QuizQuestion(models.Model):
     QUESTION_TYPES = (
@@ -81,7 +88,7 @@ class QuizQuestion(models.Model):
     question_no = models.IntegerField()
     question_type = models.CharField(max_length=10, choices=QUESTION_TYPES, default="single")
     points = models.FloatField(default=10.0)   
-    quiz_info = models.ForeignKey("QuizInfo", on_delete=models.CASCADE, related_name='quiz_info_questions')
+    quiz_info = models.ForeignKey(QuizInfo, on_delete=models.CASCADE, related_name='quiz_info_questions')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -107,6 +114,13 @@ class QuizAttempt(models.Model):
     started_at = models.DateTimeField(auto_now_add=True)
     finished_at = models.DateTimeField(null=True, blank=True)
     score = models.FloatField(default=0.0)   # accumulated score
+    
+    def percent_score(self):
+        max_score = self.quiz_info.compute_max_score()
+        return (self.score / max_score * 100) if max_score > 0 else 0.0
+
+    def __str__(self):
+        return f"{self.user} - {self.quiz_info.name} - {self.started_at}"   
 
 class AnswerSubmission(models.Model):
     id = models.UUIDField(default=uuid.uuid4, primary_key=True, editable=False)
