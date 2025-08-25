@@ -24,6 +24,8 @@ urlpatterns = [
     path('api/admin/', include(('authorization.urls', 'auth'), namespace='admin_auth')),
     path('api/admin/', include(('categories.urls_admin', 'categories'), namespace='admin_category')),
     path('api/admin/', include(('quizinfo.urls_admin', 'quizinfo'), namespace='admin_quizinfo')),
+    path('api/admin/', include(('quiz_question_option.urls_admin', 'quiz_question_option'), namespace='admin_quiz_question_option')),
     path('api/', include(('categories.urls', 'categories'), namespace='user_category')),
     path('api/', include(('quizinfo.urls', 'quizinfo'), namespace='user_quizinfo')),
+    path('api/', include(('quiz_question_option.urls', 'quiz_question_option'), namespace='user_quiz_question_option')),
 ]
