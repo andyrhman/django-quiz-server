@@ -1,10 +1,12 @@
 # quizzes/views.py
+from django.db.models import Prefetch
+from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 from rest_framework import generics, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 
-from .serializers import QuizInfoSerializer, QuizInfoSerializerCreateUpdate
+from .serializers import QuizInfoDetailSerializer, QuizInfoSerializer, QuizInfoSerializerCreateUpdate
 from core.models import QuizInfo
 from authorization.authentication import CookieJWTAuthentication
 from authorization.permissions import ScopePermission
@@ -105,7 +107,17 @@ class QuizInfoViewSet(ModelViewSet):
                 {"detail": "You do not have permission to perform this action."},
                 status=status.HTTP_403_FORBIDDEN
             )
-   
+            
+class QuizInfoDetailView(generics.RetrieveAPIView):
+    permission_classes = [AllowAny]
+    serializer_class = QuizInfoDetailSerializer
+    lookup_field = 'id'
+
+    # optimize queries: join category/user, and prefetch questions + options
+    queryset = QuizInfo.objects.all().select_related('category', 'user').prefetch_related(
+        'quiz_info_questions__quiz_question_options'
+    )
+    
 class AdminDeleteQuizInfoView(generics.DestroyAPIView):
     authentication_classes = [CookieJWTAuthentication]
     permission_classes = [IsAuthenticated, ScopePermission]
