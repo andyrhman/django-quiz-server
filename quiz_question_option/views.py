@@ -69,7 +69,15 @@ class QuizQuestionViewSet(ModelViewSet):
 
         read_serializer = QuizQuestionSerializer(serializer.instance, context={'request': request})
         return Response(read_serializer.data, status=status.HTTP_201_CREATED, headers=headers)
-
+    
+    def handle_exception(self, exc):
+        if isinstance(exc, PermissionError):
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        return super().handle_exception(exc)
+    
     def perform_create(self, serializer):
         # Ensure quiz exists & user is allowed to add question
         quiz = serializer.validated_data.get('quiz_info')

@@ -28,4 +28,5 @@ urlpatterns = [
     path('api/', include(('categories.urls', 'categories'), namespace='user_category')),
     path('api/', include(('quizinfo.urls', 'quizinfo'), namespace='user_quizinfo')),
     path('api/', include(('quiz_question_option.urls', 'quiz_question_option'), namespace='user_quiz_question_option')),
+    path('api/', include(('quiz_attempt.urls', 'quiz_attempt'), namespace='user_quiz_attempt')),
 ]

@@ -47,7 +47,8 @@ INSTALLED_APPS = [
     'authorization',
     'categories',
     'quizinfo',
-    'quiz_question_option'
+    'quiz_question_option',
+    'quiz_attempt',
 ]
 
 MIDDLEWARE = [
