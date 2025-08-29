@@ -1,4 +1,5 @@
 from django.core.paginator import Paginator
+from django.core.serializers import get_serializer
 from django.db.models import Q
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
@@ -124,7 +125,7 @@ class QuizInfoViewSet(ModelViewSet):
                 {"detail": "You do not have permission to perform this action."},
                 status=status.HTTP_403_FORBIDDEN
             )
-            
+ 
 class QuizInfoDetailView(generics.RetrieveAPIView):
     """
     GET /api/quizinfos/<id>/with-questions/?question_page=1&option_page=1&option_page_size=5
@@ -212,6 +213,18 @@ class QuizInfoDetailView(generics.RetrieveAPIView):
 
         return Response(base_data)
     
+class QuizInfoOwner(generics.ListAPIView):
+    authentication_classes = [CookieJWTAuthentication]
+    permission_classes = [IsAuthenticated, ScopePermission]
+    serializer_class = QuizInfoSerializer
+    pagination_class = QuizInfoListPagination
+
+    def get_queryset(self):
+        user = getattr(self.request, "user", None)
+        if user and getattr(user, "is_authenticated", False):
+            return QuizInfo.objects.filter(user=user).select_related('category', 'user')
+        return QuizInfo.objects.none()
+
 class AdminDeleteQuizInfoView(generics.DestroyAPIView):
     authentication_classes = [CookieJWTAuthentication]
     permission_classes = [IsAuthenticated, ScopePermission]
