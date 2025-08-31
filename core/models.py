@@ -87,13 +87,14 @@ class QuizQuestion(models.Model):
     question = models.TextField()
     question_no = models.IntegerField()
     question_type = models.CharField(max_length=10, choices=QUESTION_TYPES, default="single")
-    points = models.FloatField(default=10.0)   
+    points = models.FloatField(default=10.0)
+    explanation = models.TextField(null=True, blank=True)   # <-- NEW field
     quiz_info = models.ForeignKey(QuizInfo, on_delete=models.CASCADE, related_name='quiz_info_questions')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def correct_options(self):
-        return self.options.filter(is_correct=True)
+        return self.quiz_question_options.filter(is_correct=True)
 
 class QuizOption(models.Model):
     id = models.UUIDField(default=uuid.uuid4, primary_key=True, editable=False)

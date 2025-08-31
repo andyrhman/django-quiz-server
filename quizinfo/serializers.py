@@ -80,7 +80,8 @@ class QuizInfoSerializerCreateUpdate(serializers.ModelSerializer):
             **validated_data
         )
         return quiz_info
-        
+   
+    
 class QuizOptionNestedSerializer(serializers.ModelSerializer):
     is_correct = serializers.SerializerMethodField()
 
@@ -169,3 +170,17 @@ class QuizInfoDetailSerializer(serializers.ModelSerializer):
             return obj.compute_max_score()
         except Exception:
             return 0.0
+        
+class QuizOptionPreviewSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = QuizOption
+        fields = ('id', 'text', 'order', 'is_correct')  # preview shows is_correct flag
+
+class QuizQuestionPreviewSerializer(serializers.ModelSerializer):
+    options = QuizOptionPreviewSerializer(source='quiz_question_options', many=True, read_only=True)
+    explanation = serializers.CharField(read_only=True)  # show explanation in preview always
+
+    class Meta:
+        model = QuizQuestion
+        fields = ('id','question','question_no','question_type','points','options','explanation')
+       

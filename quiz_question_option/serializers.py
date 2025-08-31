@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from core.models import QuizQuestion, QuizOption, QuizInfo 
+from core.models import QuizQuestion, QuizOption, QuizInfo
 
 class QuizOptionSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(required=False)
@@ -9,43 +9,58 @@ class QuizOptionSerializer(serializers.ModelSerializer):
         fields = ('id', 'text', 'is_correct', 'order', 'created_at', 'updated_at')
         read_only_fields = ('created_at','updated_at')
 
+# READ serializer used for general endpoints (non-preview).
+# explanation visible only to owner/admin; otherwise null.
 class QuizQuestionSerializer(serializers.ModelSerializer):
-    """
-    Read serializer for questions — returns nested options (read-only).
-    """
     options = QuizOptionSerializer(source='quiz_question_options', many=True, read_only=True)
     quiz_info = serializers.PrimaryKeyRelatedField(read_only=True)
+    explanation = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = QuizQuestion
         fields = (
             'id','question','question_no','question_type','points',
-            'quiz_info','created_at','updated_at','options'
+            'quiz_info','created_at','updated_at','options','explanation'
         )
-        read_only_fields = ('id','created_at','updated_at')
+        read_only_fields = ('id','created_at','updated_at','explanation')
 
+    def get_explanation(self, obj):
+        request = self.context.get('request', None)
+        if request is None:
+            return None
+        token = getattr(request, 'auth', None)
+        # robust scope detection
+        scope = None
+        try:
+            scope = token.get('scope') if token and hasattr(token, 'get') else getattr(token, 'scope', None)
+        except Exception:
+            scope = getattr(token, 'scope', None)
+
+        # Admin can see explanation
+        if scope == 'admin':
+            return obj.explanation
+
+        user = getattr(request, 'user', None)
+        if user and getattr(user, 'is_authenticated', False):
+            # owner sees explanation
+            try:
+                if str(obj.quiz_info.user_id) == str(user.id):
+                    return obj.explanation
+            except Exception:
+                if obj.quiz_info.user == user:
+                    return obj.explanation
+        return None
+
+
+# CREATE/UPDATE serializer: accept explanation field
 class QuizQuestionCreateUpdateSerializer(serializers.ModelSerializer):
-    """
-    Write serializer for creating/updating a question with nested options.
-    Expects:
-    {
-      "question": "...",
-      "question_no": 1,
-      "question_type": "single",
-      "points": 10,
-      "quiz_info": "<uuid>",
-      "options": [
-         {"text":"A", "is_correct": false},
-         {"text":"B", "is_correct": true}
-      ]
-    }
-    """
     quiz_info = serializers.UUIDField(write_only=True)
     options = QuizOptionSerializer(many=True, write_only=True)
+    explanation = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
     class Meta:
         model = QuizQuestion
-        fields = ('id','question','question_no','question_type','points','quiz_info','options')
+        fields = ('id','question','question_no','question_type','points','explanation','quiz_info','options')
         read_only_fields = ('id',)
 
     def validate(self, data):
@@ -77,23 +92,28 @@ class QuizQuestionCreateUpdateSerializer(serializers.ModelSerializer):
             if qs.exists():
                 raise serializers.ValidationError({"question_no": "question_no must be unique per quiz."})
 
-        # replace quiz_info uuid with actual instance for create/update convenience
         data['quiz_info'] = quiz
         return data
 
     def create(self, validated_data):
         options_data = validated_data.pop('options', [])
+        explanation = validated_data.pop('explanation', None)
         quiz_info = validated_data.pop('quiz_info')
-        question = QuizQuestion.objects.create(quiz_info=quiz_info, **validated_data)
+        question = QuizQuestion.objects.create(quiz_info=quiz_info, explanation=explanation, **validated_data)
         for idx, opt in enumerate(options_data, start=1):
             QuizOption.objects.create(question=question, order=opt.get('order', idx), **opt)
         return question
 
     def update(self, instance, validated_data):
         options_data = validated_data.pop('options', None)
+        explanation = validated_data.pop('explanation', None)
+
         # update simple fields
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
+        # update explanation if provided (allow empty string)
+        if explanation is not None:
+            instance.explanation = explanation
         instance.save()
 
         # naive but reliable: delete and recreate options if provided

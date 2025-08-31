@@ -6,7 +6,7 @@ from rest_framework.viewsets import ModelViewSet
 from rest_framework import generics, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from .pagination import QuizInfoListPagination
-from .serializers import QuizInfoDetailSerializer, QuizInfoSerializer, QuizInfoSerializerCreateUpdate, QuizOptionNestedSerializer, QuizQuestionNestedSerializer
+from .serializers import QuizInfoDetailSerializer, QuizInfoSerializer, QuizInfoSerializerCreateUpdate, QuizOptionNestedSerializer, QuizQuestionNestedSerializer, QuizQuestionPreviewSerializer
 from core.models import QuizInfo
 from authorization.authentication import CookieJWTAuthentication
 from authorization.permissions import ScopePermission
@@ -230,3 +230,78 @@ class AdminDeleteQuizInfoView(generics.DestroyAPIView):
     permission_classes = [IsAuthenticated, ScopePermission]
     queryset = QuizInfo.objects.all()
     lookup_field = "id"
+    
+class QuizInfoPreviewView(generics.RetrieveAPIView):
+    """
+    GET /api/quizinfos/<id>/with-questions-explanation/?question_page=1&option_page=1&option_page_size=5
+    Returns quiz base info and one question per page; options include is_correct + explanation (only for correct).
+    Also attaches latest attempt summary for authenticated user (if present).
+    """
+    permission_classes = [AllowAny]
+    lookup_field = 'id'
+    queryset = QuizInfo.objects.all().select_related('category', 'user').prefetch_related(
+        'quiz_info_questions__quiz_question_options'
+    )
+
+    def get(self, request, *args, **kwargs):
+        quiz = self.get_object()
+
+        # paginate questions: 1 per page
+        questions_qs = quiz.quiz_info_questions.all().order_by('question_no')
+        question_page_num = int(request.query_params.get('question_page', 1))
+        question_paginator = Paginator(questions_qs, 1)
+        try:
+            question_page = question_paginator.page(question_page_num)
+        except EmptyPage:
+            question_page = []
+
+        # base quiz data (same as your QuizInfoSerializer)
+        base_data = QuizInfoSerializer(quiz, context={'request': request}).data
+
+        # questions meta
+        total_questions = question_paginator.count
+        last_qpage = question_paginator.num_pages
+        base_data['questions_meta'] = {
+            "total": total_questions,
+            "page": question_page_num if total_questions else 1,
+            "last_page": last_qpage
+        }
+
+        if not question_page:
+            base_data['questions'] = []
+            # attach attempt info if available
+            base_data['user_attempt'] = self._get_user_attempt_summary(request.user, quiz)
+            return Response(base_data)
+
+        q_obj = question_page.object_list[0]
+
+        # serialize question (use preview serializer so is_correct & explanation are visible)
+        q_ser = QuizQuestionPreviewSerializer(q_obj, context={'request': request})
+        q_data = q_ser.data
+
+        # paginate options
+        option_page_num = int(request.query_params.get('option_page', 1))
+        option_page_size = int(request.query_params.get('option_page_size', 5))
+        options_qs = q_obj.quiz_question_options.all().order_by('order', 'created_at')
+        option_paginator = Paginator(options_qs, option_page_size)
+
+        try:
+            option_page = option_paginator.page(option_page_num)
+            option_objs = option_page.object_list
+        except EmptyPage:
+            option_objs = []
+            option_page_num = option_paginator.num_pages or 1
+
+        option_ser = QuizOptionNestedSerializer(option_objs, many=True, context={'request': request})
+        options_data = option_ser.data
+
+        q_data['options'] = options_data
+        q_data['options_meta'] = {
+            "total": option_paginator.count,
+            "page": option_page_num if option_paginator.count else 1,
+            "last_page": option_paginator.num_pages
+        }
+
+        base_data['questions'] = [q_data]
+
+        return Response(base_data)
