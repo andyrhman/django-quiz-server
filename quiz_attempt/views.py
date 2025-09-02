@@ -1,4 +1,5 @@
 # attempts/views.py
+from django.core.paginator import EmptyPage, Paginator
 from rest_framework import generics, status
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated, AllowAny
@@ -170,3 +171,154 @@ class SubmitAnswersView(APIView):
             "finished_at": attempt.finished_at,
             "answers": created_submissions
         }, status=status.HTTP_200_OK)
+
+class AttemptReviewView(APIView):
+    """
+    GET /api/attempts/review/<uuid:attempt_id>/?question_page=1
+    Returns:
+      - attempt summary (score, percent, started_at, finished_at)
+      - stats: total_questions, total_correct, total_incorrect
+      - questions (1 per page) with options annotated: {is_correct, selected}
+      - questions_meta for pagination (total, page, last_page)
+    Access: attempt.user OR quiz owner OR admin-scope token
+    """
+    authentication_classes = [CookieJWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, attempt_id=None, *args, **kwargs):
+        # 1) load attempt
+        try:
+            attempt = QuizAttempt.objects.select_related('quiz_info', 'user').get(id=attempt_id)
+        except QuizAttempt.DoesNotExist:
+            return Response({"detail": "QuizAttempt not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        # 2) permission check: attempt taker OR quiz owner OR admin
+        quiz = attempt.quiz_info
+        user = request.user
+        if not (_is_admin_scope(request) or (user and user.is_authenticated and (attempt.user_id == user.id or (quiz.user_id and quiz.user_id == user.id)))):
+            return Response({"detail": "You do not have permission to view this attempt review."}, status=status.HTTP_403_FORBIDDEN)
+        
+        quiz_info_data = {
+            "id": str(quiz.id),
+            "name": quiz.name,
+            "time_limit": quiz.time_limit,
+            "category": {
+                "id": str(quiz.category.id) if quiz.category else None,
+                "name": quiz.category.name if quiz.category else None
+            },
+            "user": {
+                "id": str(quiz.user.id) if quiz.user else None,
+                "username": quiz.user.username if quiz.user else None,
+                # use attribute name you store on User model ('is_user' in your examples)
+                "is_user": getattr(quiz.user, 'is_user', None) if quiz.user else None
+            },
+            "created_at": quiz.created_at.isoformat() if quiz.created_at else None,
+            "updated_at": quiz.updated_at.isoformat() if quiz.updated_at else None,
+            "max_score": float(quiz.compute_max_score() or 0.0)
+        }
+        duration_seconds = None
+        duration_human = None
+        if attempt.started_at:
+            end_time = attempt.finished_at if attempt.finished_at else timezone.now()
+            # ensure timezone-aware arithmetic
+            try:
+                delta = end_time - attempt.started_at
+                # total seconds (float) -> round/int as desired
+                duration_seconds = int(delta.total_seconds())
+                # format HH:MM:SS
+                hrs, rem = divmod(duration_seconds, 3600)
+                mins, secs = divmod(rem, 60)
+                duration_human = f"{hrs:02d}:{mins:02d}:{secs:02d}"
+            except Exception:
+                # fallback in case of weird timezone types
+                duration_seconds = None
+                duration_human = None
+        # 3) stats: total questions, total correct, total incorrect
+        total_questions = quiz.quiz_info_questions.count()
+        total_correct = attempt.attempt_answers.filter(is_correct=True).count()
+        total_incorrect = attempt.attempt_answers.filter(is_correct=False).count()
+
+        # 4) paginate questions: 1 per page
+        question_page_num = int(request.query_params.get('question_page', 1))
+        questions_qs = quiz.quiz_info_questions.all().order_by('question_no')
+        paginator = Paginator(questions_qs, 1)
+
+        try:
+            page_obj = paginator.page(question_page_num)
+            page_questions = list(page_obj.object_list)
+        except EmptyPage:
+            # out of range -> return empty question list but still include meta
+            page_questions = []
+            page_obj = None
+
+        # decide whether to reveal explanation based on finished_at
+        reveal_explanation = bool(attempt.finished_at)
+
+        questions_payload = []
+        for q in page_questions:
+            # same submission resolution as above...
+            try:
+                submission = AnswerSubmission.objects.get(attempt=attempt, question=q)
+                selected_set = set(str(x) for x in (submission.selected_option_ids or []))
+                awarded_points = float(submission.awarded_points or 0.0)
+                question_is_correct = bool(submission.is_correct)
+            except AnswerSubmission.DoesNotExist:
+                submission = None
+                selected_set = set()
+                awarded_points = 0.0
+                question_is_correct = False
+
+            opts = []
+            for opt in q.quiz_question_options.all().order_by('order', 'created_at'):
+                opt_id_str = str(opt.id)
+                opts.append({
+                    "id": str(opt.id),
+                    "text": opt.text,
+                    "order": opt.order,
+                    "is_correct": bool(opt.is_correct),
+                    "selected": opt_id_str in selected_set
+                })
+
+            questions_payload.append({
+                "id": str(q.id),
+                "question": q.question,
+                "question_no": q.question_no,
+                "question_type": q.question_type,
+                "points": float(q.points),
+                "awarded_points": awarded_points,
+                "is_correct": question_is_correct,
+                "explanation": q.explanation if reveal_explanation else None,
+                "options": opts
+            })
+
+        # 6) assemble response
+        questions_meta = {
+            "total": paginator.count if paginator else 0,
+            "page": question_page_num if paginator.count else 1,
+            "last_page": paginator.num_pages if paginator else 1
+        }
+
+        attempt_summary = {
+            "attempt_id": str(attempt.id),
+            "user_id": str(attempt.user_id),
+            "score": float(attempt.score),
+            "percent_score": attempt.percent_score(),
+            "started_at": attempt.started_at.isoformat() if attempt.started_at else None,
+            "finished_at": attempt.finished_at.isoformat() if attempt.finished_at else None,
+            "duration_seconds": duration_seconds,
+            "duration": duration_human
+        }
+
+        response = {
+            "quiz_info": quiz_info_data,
+            "attempt": attempt_summary,
+            "stats": {
+                "total_questions": total_questions,
+                "total_correct": total_correct,
+                "total_incorrect": total_incorrect
+            },
+            "questions_meta": questions_meta,
+            "questions": questions_payload
+        }
+
+        return Response(response, status=status.HTTP_200_OK)
